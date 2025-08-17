@@ -1,50 +1,55 @@
-local cameraX = 0
-local mapImage
-local mapData
-local scale = 3 -- global scale factor
-local mapY
-local mapWidth
-local mapHeight
+local cameraX = 0 -- camera horizontal position
+local mapImage    -- will hold the map image
+local mapData     -- will hold map pixel data
+local scale = 3   -- global scale factor for graphics
+local mapY        -- y-position of map
+local mapWidth    -- width of map in pixels after scaling
+local mapHeight   -- height of map in pixels after scaling
 
 function love.load()
-    anim8 = require 'libraries/anim8'
-    love.graphics.setDefaultFilter("nearest", "nearest")
+    anim8 = require 'libraries/anim8' -- animation library
+    love.graphics.setDefaultFilter("nearest", "nearest") -- pixel art style, no smoothing
 
     -- Load map
-    mapImage = love.graphics.newImage("map.png")
-    mapData  = love.image.newImageData("map.png")
-    mapWidth  = mapImage:getWidth()  * scale
-    mapHeight = mapImage:getHeight() * scale
+    mapImage = love.graphics.newImage("map.png")      -- load image for drawing
+    mapData  = love.image.newImageData("map.png")     -- load image for pixel collision
+    mapWidth  = mapImage:getWidth()  * scale         -- scaled width
+    mapHeight = mapImage:getHeight() * scale        -- scaled height
     local mapOffsetY = 53
-    mapY = love.graphics.getHeight() - mapHeight + mapOffsetY
+    mapY = love.graphics.getHeight() - mapHeight + mapOffsetY -- position map at bottom
 
     -- Load player
     local playerSpriteSheet = love.graphics.newImage('sprites/player-sheet.png')
     player = {
-        x = 100, y = 300,
-        w = 40, h = 40,
+        x = 100, y = 300,    -- player starting position
+        w = 40, h = 40,      -- player size
         spriteSheet = playerSpriteSheet,
-        yVelocity = 0, jumpForce = -600, gravity = 1400, speed = 250,
-        facing_right = true, onGround = false
+        yVelocity = 0,       -- vertical speed
+        jumpForce = -600,    -- jump strength (negative = up)
+        gravity = 1400,      -- gravity pulling down
+        speed = 250,         -- horizontal speed
+        facing_right = true, -- which way player is facing
+        onGround = false     -- is player standing on ground?
     }
 
+    -- create animation grid
     player.grid = anim8.newGrid(32, 32, player.spriteSheet:getWidth(), player.spriteSheet:getHeight())
     player.animations = {
-        idle = anim8.newAnimation(player.grid('1-4', 1), 0.3),
-        walk = anim8.newAnimation(player.grid('1-4', 2), 0.2),
-        jump = anim8.newAnimation(player.grid('1-5', 5), 0.25)
+        idle = anim8.newAnimation(player.grid('1-4', 1), 0.3),  -- idle frames
+        walk = anim8.newAnimation(player.grid('1-4', 2), 0.2),  -- walking frames
+        jump = anim8.newAnimation(player.grid('1-5', 5), 0.25)  -- jumping frames
     }
-    player.anim = player.animations.idle
+    player.anim = player.animations.idle -- start with idle animation
 end
 
--- find floor based on transparent pixels
+-- find floor Y position at given world X
 function getFloorYAt(worldX)
-    local imgX = math.floor(worldX / scale)
+    local imgX = math.floor(worldX / scale) -- convert world X to image X
     if imgX < 0 or imgX >= mapData:getWidth() then
         return love.graphics.getHeight() -- outside map
     end
 
-    -- scan top -> bottom, look for first solid with air above
+    -- scan top to bottom for first solid pixel with air above
     for imgY = 0, mapData:getHeight() - 1 do
         local r, g, b, a = mapData:getPixel(imgX, imgY)
         if a > 0 then
@@ -62,6 +67,7 @@ function getFloorYAt(worldX)
     return love.graphics.getHeight() -- no ground here
 end
 
+-- check if a world pixel is solid
 local function isSolidPixel(worldX, worldY)
     local imgX = math.floor(worldX / scale)
     local imgY = math.floor((worldY - mapY) / scale)
@@ -74,6 +80,7 @@ local function isSolidPixel(worldX, worldY)
     return a > 0
 end
 
+-- handle left/right player movement
 function handleHorizontalMovement(dt)
     local is_moving = false
     local moveX = 0
@@ -89,7 +96,7 @@ function handleHorizontalMovement(dt)
     end
 
     if moveX ~= 0 then
-        -- Check at player's feet and head for wall collision
+        -- check collision at player's head and feet
         local nextLeft   = player.x + moveX
         local nextRight  = player.x + player.w + moveX
         local headY      = player.y + 5
@@ -108,6 +115,7 @@ function handleHorizontalMovement(dt)
             end
         end
 
+        -- move player if no wall hit
         if not hitWall then
             player.x = player.x + moveX
         end
@@ -116,10 +124,10 @@ function handleHorizontalMovement(dt)
     return is_moving
 end
 
-
 function love.update(dt)
-    handleHorizontalMovement(dt)
+    handleHorizontalMovement(dt) -- update horizontal movement
 
+    -- update animation based on movement
     if player.onGround then
         if love.keyboard.isDown("a") or love.keyboard.isDown("d") then
             player.anim = player.animations.walk
@@ -128,60 +136,61 @@ function love.update(dt)
         end
     end
 
-    -- gravity
+    -- apply gravity
     player.yVelocity = player.yVelocity + player.gravity * dt
     player.y = player.y + player.yVelocity * dt
 
-    -- floor detection
+    -- detect floor collision
     local floorY = getFloorYAt(player.x + player.w/2)
     if player.y + player.h >= floorY then
-        player.y = floorY - player.h
-        player.yVelocity = 0
+        player.y = floorY - player.h -- place on top of floor
+        player.yVelocity = 0         -- stop falling
         player.onGround = true
     else
         player.onGround = false
     end
 
-    -- update animation
-    player.anim:update(dt)
+    player.anim:update(dt) -- update current animation
 
-    -- camera follow
+    -- camera follow logic
     local screenMid = love.graphics.getWidth() / 2
-    local slack = 100
+    local slack = 100 -- distance before camera moves
     if player.x - cameraX < slack then
         cameraX = player.x - slack
     elseif player.x - cameraX > screenMid - slack then
         cameraX = player.x - (screenMid - slack)
     end
+    -- clamp camera inside map boundaries
     cameraX = math.max(0, math.min(cameraX, mapWidth - love.graphics.getWidth()))
 end
 
 function love.keypressed(key)
     if key == "w" and player.onGround then
-        player.yVelocity = player.jumpForce
+        player.yVelocity = player.jumpForce -- apply jump
         player.onGround = false
-        player.anim = player.animations.jump
+        player.anim = player.animations.jump -- switch to jump animation
     end
 end
 
 function love.draw()
-    -- draw map
+    -- draw the map at camera position
     love.graphics.draw(mapImage, -cameraX, mapY, 0, scale, scale)
 
-    local frameW, frameH = 32, 32
+    local frameW, frameH = 32, 32 -- sprite frame size
     local sx, ox
 
     if player.facing_right then
-        sx = scale
-        ox = 0
+        sx = scale  -- normal scale
+        ox = 0      -- origin x
     else
-        sx = -scale
-        ox = frameW  -- shift origin so flip is around sprite center/edge
+        sx = -scale -- flip horizontally
+        ox = frameW -- adjust origin to flip
     end
 
     local sy = scale
-    local oy = frameH  -- keep anchor at feet
+    local oy = frameH -- anchor at feet
 
+    -- draw player animation
     player.anim:draw(
         player.spriteSheet,
         player.x - cameraX, player.y + player.h,
