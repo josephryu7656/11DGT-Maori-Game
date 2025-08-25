@@ -5,10 +5,29 @@ local scale = 3   -- global scale factor for graphics
 local mapY        -- y-position of map
 local mapWidth    -- width of map in pixels after scaling
 local mapHeight   -- height of map in pixels after scaling
+local lives = 3 -- player starts with 3 lives
+local gameState = "menu" -- can be "menu" or "play"
+local menuImage   -- will hold the menu screen image
+local healthImages = {}
+local deathFrames = {}
+local currentHealthImage
+local showDeathAnim = false
+local deathAnimTimer = 0
+local deathAnimIndex = 1
+local deathAnimDuration = 0.2 -- seconds per death frame
+local healthScale = 3         -- scale factor for crisp enlargement
+
+
 
 function love.load()
     anim8 = require 'libraries/anim8' -- animation library
     love.graphics.setDefaultFilter("nearest", "nearest") -- pixel art style, no smoothing
+
+    -- Load menu
+    menuImage = love.graphics.newImage("menu.png") -- menu image
+
+    -- Load background
+    backgroundImage = love.graphics.newImage("background.png")
 
     -- Load map
     mapImage = love.graphics.newImage("map.png")      -- load image for drawing
@@ -21,6 +40,7 @@ function love.load()
     -- Load player
     local playerSpriteSheet = love.graphics.newImage('sprites/player-sheet.png')
     player = {
+        startX = 100, startY = 300, -- player starting position (for reset)
         x = 100, y = 300,    -- player starting position
         w = 40, h = 40,      -- player size
         spriteSheet = playerSpriteSheet,
@@ -40,6 +60,9 @@ function love.load()
         jump = anim8.newAnimation(player.grid('1-5', 5), 0.25)  -- jumping frames
     }
     player.anim = player.animations.idle -- start with idle animation
+
+
+    
 end
 
 -- find floor Y position at given world X
@@ -69,7 +92,9 @@ end
 
 -- check if a world pixel is solid
 local function isSolidPixel(worldX, worldY)
-    local imgX = math.floor(worldX / scale)
+    -- Shift the collision detection to the left by 3 pixels
+    local shiftedWorldX = worldX
+    local imgX = math.floor(shiftedWorldX / scale)
     local imgY = math.floor((worldY - mapY) / scale)
 
     if imgX < 0 or imgX >= mapData:getWidth() or imgY < 0 or imgY >= mapData:getHeight() then
@@ -78,6 +103,16 @@ local function isSolidPixel(worldX, worldY)
 
     local _, _, _, a = mapData:getPixel(imgX, imgY)
     return a > 0
+end
+
+function playerDies()
+    lives = lives - 1
+    if lives <= 0 then
+        gameState = "menu" -- return to menu when out of lives
+        lives = 3          -- reset lives for next game
+    else
+        resetPlayer()      -- respawn
+    end
 end
 
 -- handle left/right player movement
@@ -124,7 +159,18 @@ function handleHorizontalMovement(dt)
     return is_moving
 end
 
+-- reset player to starting position
+function resetPlayer()
+    player.x = player.startX
+    player.y = player.startY
+    player.yVelocity = 0
+end
+
 function love.update(dt)
+    if gameState == "menu" then
+        return -- skip update logic if still in menu
+    end
+
     handleHorizontalMovement(dt) -- update horizontal movement
 
     -- update animation based on movement
@@ -150,6 +196,10 @@ function love.update(dt)
         player.onGround = false
     end
 
+    if player.y + player.h >= love.graphics.getHeight() then
+        playerDies()
+    end
+
     player.anim:update(dt) -- update current animation
 
     -- camera follow logic
@@ -165,14 +215,25 @@ function love.update(dt)
 end
 
 function love.keypressed(key)
-    if key == "w" and player.onGround then
-        player.yVelocity = player.jumpForce -- apply jump
-        player.onGround = false
-        player.anim = player.animations.jump -- switch to jump animation
+    if gameState == "menu" and key == "space" then
+        gameState = "play" -- start the game
+    elseif gameState == "play" then
+        if key == "w" and player.onGround then
+            player.yVelocity = player.jumpForce -- apply jump
+            player.onGround = false
+            player.anim = player.animations.jump -- switch to jump animation
+        elseif key == "r" then
+            resetPlayer() -- reset player position
+        end
     end
 end
 
 function love.draw()
+    -- Draw static background (fills entire screen, anchored at 0,0)
+    love.graphics.draw(backgroundImage, 0, 0, 0,
+        love.graphics.getWidth() / backgroundImage:getWidth(),
+        love.graphics.getHeight() / backgroundImage:getHeight()
+    )
     -- draw the map at camera position
     love.graphics.draw(mapImage, -cameraX, mapY, 0, scale, scale)
 
@@ -196,4 +257,8 @@ function love.draw()
         player.x - cameraX, player.y + player.h,
         0, sx, sy, ox, oy
     )
+     -- draw menu LAST so it is always on top
+    if gameState == "menu" then
+        love.graphics.draw(menuImage, 0, 0)
+    end
 end
